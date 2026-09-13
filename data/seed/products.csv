@@ -1,0 +1,11 @@
+product_id,product_name,category
+P001,Rice,Grocery
+P002,Pasta,Grocery
+P003,Oats,Grocery
+P004,Coffee,Grocery
+P005,T-shirt,Apparel
+P006,Socks,Apparel
+P007,Notebook,Stationery
+P008,Pens,Stationery
+P009,Dish brush,Household
+P010,Sponge pack,Household

@@ -1,0 +1,6 @@
+-- Requirement: Aggregate revenue per category/product, show ROW_NUMBER, RANK, DENSE_RANK, then select the top 2 revenue ranks including ties.
+-- Input views: fact_sales, dim_product
+-- Output grain: One category/product.
+-- Acceptance: Household P009 and P010 each have 10.00 revenue and the same RANK/DENSE_RANK. Use product_id only to break ROW_NUMBER ties.
+-- Interview: How do ranking choices change the number of returned rows?
+-- TODO: Write your Spark SQL here. No executable query is supplied.

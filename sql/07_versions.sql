@@ -1,0 +1,6 @@
+-- Requirement: Use CTEs/windows to classify incoming business keys as insert/update/repeat/stale/conflict relative to current sales; honour the whole-key conflict policy.
+-- Input views: incoming_sales, current_sales (typed, validated source fields)
+-- Output grain: One incoming business key, with selected timestamp/outcome; include conflict keys.
+-- Acceptance: Day 2: 32 insert keys, 6 update keys, 2 conflict keys; per-key output is not per-occurrence row accounting.
+-- Interview: Why can DISTINCT or an arbitrary ROW_NUMBER tie-break discard a source conflict?
+-- TODO: Write your Spark SQL here. No executable query is supplied.

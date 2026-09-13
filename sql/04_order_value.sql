@@ -1,0 +1,6 @@
+-- Requirement: Use CTEs to aggregate lines to completed orders, then calculate average completed order value per store.
+-- Input views: fact_sales
+-- Output grain: One store with completed orders.
+-- Acceptance: O1001 is one completed order despite two lines. Day 1: 41 completed orders overall.
+-- Interview: Why is AVG(net_sales) at line grain incorrect for average order value?
+-- TODO: Write your Spark SQL here. No executable query is supplied.

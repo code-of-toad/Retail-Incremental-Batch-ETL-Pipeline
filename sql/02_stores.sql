@@ -1,0 +1,6 @@
+-- Requirement: Report completed revenue and completed-line count for every store using LEFT JOIN. Explain an INNER JOIN variant.
+-- Input views: dim_store, fact_sales
+-- Output grain: One store.
+-- Acceptance: All 5 stores; S005 has 0 revenue and 0 completed lines. Match fact completed revenue.
+-- Interview: Why can WHERE remove an unmatched store? COUNT(*) vs COUNT(column)?
+-- TODO: Write your Spark SQL here. No executable query is supplied.

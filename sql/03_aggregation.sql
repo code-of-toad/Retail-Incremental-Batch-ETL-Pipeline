@@ -1,0 +1,6 @@
+-- Requirement: Calculate revenue, completed units, distinct completed orders, and cancelled-line count by date/store. Add a HAVING revenue > 50 variant.
+-- Input views: fact_sales
+-- Output grain: One sale_date/store_id.
+-- Acceptance: Unfiltered totals match expected_batches; cancelled lines are not completed orders.
+-- Interview: What is the difference between WHERE and HAVING?
+-- TODO: Write your Spark SQL here. No executable query is supplied.

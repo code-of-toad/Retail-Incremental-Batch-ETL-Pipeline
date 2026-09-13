@@ -1,0 +1,6 @@
+-- Requirement: Filter completed April 1 sales; show order_id, order_line_id, sale_date, order_status, net_sales. Practise CASE/COALESCE and a separate IS NULL diagnostic.
+-- Input views: fact_sales
+-- Output grain: One order line.
+-- Acceptance: Day 1: 42 completed lines, net_sales 429.00. Empty date ranges return no rows.
+-- Interview: Why does COALESCE not prove source completeness?
+-- TODO: Write your Spark SQL here. No executable query is supplied.

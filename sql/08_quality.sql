@@ -1,0 +1,6 @@
+-- Requirement: Write separate duplicate composite-key and missing-reference diagnostics, then count/money reconciliation queries.
+-- Input views: fact_sales, dim_product, dim_store; incoming_sales/current_sales for reconciliation
+-- Output grain: One violating key/reference; separate summary rows.
+-- Acceptance: Final valid facts yield zero duplicate/orphan diagnostics. Inject defects in temporary views to prove detection.
+-- Interview: How can joins inflate totals even when foreign keys exist?
+-- TODO: Write your Spark SQL here. No executable query is supplied.

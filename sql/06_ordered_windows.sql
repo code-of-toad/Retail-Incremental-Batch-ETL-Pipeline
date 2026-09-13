@@ -1,0 +1,6 @@
+-- Requirement: Calculate daily store revenue, prior observed-date revenue via LAG, revenue change, and cumulative revenue with an explicit window frame.
+-- Input views: fact_sales
+-- Output grain: One sale_date/store_id.
+-- Acceptance: Day 1 has no prior observed date. Across all batches, latest cumulative values reconcile to store totals.
+-- Interview: Does the previous observed date always mean the previous calendar day?
+-- TODO: Write your Spark SQL here. No executable query is supplied.

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "retail-incremental-batch-etl-pipeline"
+version = "0.1.0"
+description = "An interview-focused retail ETL learning scaffold."
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "setup: completed setup checks, not evidence of implemented ETL",
+    "exercise: learner-owned business tests; remove each skip when ready",
+]

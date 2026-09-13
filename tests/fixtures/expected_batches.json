@@ -1,0 +1,47 @@
+{
+  "2026-04-01": {
+    "source_rows": 60,
+    "validation_rejects": 8,
+    "version_conflicts": 2,
+    "ignored": 6,
+    "inserts": 44,
+    "updates": 0,
+    "fact_rows": 44,
+    "completed_lines": 42,
+    "completed_orders": 41,
+    "completed_units": 43,
+    "gross_sales": "430.00",
+    "net_sales": "429.00",
+    "gross_margin": "171.00"
+  },
+  "2026-04-02": {
+    "source_rows": 50,
+    "validation_rejects": 4,
+    "version_conflicts": 3,
+    "ignored": 5,
+    "inserts": 32,
+    "updates": 6,
+    "fact_rows": 76,
+    "completed_lines": 73,
+    "completed_orders": 72,
+    "completed_units": 76,
+    "gross_sales": "765.00",
+    "net_sales": "762.00",
+    "gross_margin": "300.00"
+  },
+  "2026-04-03": {
+    "source_rows": 40,
+    "validation_rejects": 4,
+    "version_conflicts": 3,
+    "ignored": 5,
+    "inserts": 24,
+    "updates": 4,
+    "fact_rows": 100,
+    "completed_lines": 97,
+    "completed_orders": 96,
+    "completed_units": 102,
+    "gross_sales": "1027.00",
+    "net_sales": "1024.00",
+    "gross_margin": "406.00"
+  }
+}
