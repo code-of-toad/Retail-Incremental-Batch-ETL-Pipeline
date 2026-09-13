@@ -4,7 +4,7 @@ A two-day retail data engineering capstone using **Python, PySpark, and Spark SQ
 
 **Goal:** Build one small pipeline and explain its correctness, execution, failure modes, and design tradeoffs in a technical interview.
 
-**Status:** Learning specification. The structure, datasets, functions, and tests below are planned implementation targets; this documentation does not claim they already exist or pass. Important logic is yours to write. All project documentation stays in this README.
+**Status:** Day 1 scaffold supplied: fixed seed files, setup, function stubs, eight SQL prompts, and test skeletons. ETL logic is intentionally unimplemented. Setup tests are separate from skipped learner exercises. All project documentation stays in this README.
 
 <a id="top"></a>
 
@@ -12,6 +12,7 @@ A two-day retail data engineering capstone using **Python, PySpark, and Spark SQ
 
 - [Business scenario and architecture](#business-scenario-and-architecture)
 - [Data contracts](#data-contracts)
+- [Seed expectations](#seed-expectations)
 - [Project structure and setup](#project-structure-and-setup)
 - [Two-day plan](#two-day-plan)
 - [Implementation exercises](#implementation-exercises)
@@ -42,7 +43,7 @@ flowchart TD
 
 Log counts and outcomes throughout. Readers use the committed snapshot reference; uncommitted staging output is not reportable data. Publication and batch history must refer to the same successful result.
 
-**Scope:** Approximately 150 sales rows across three simulated delivery dates, 10 products, and 5 stores. These deliveries are processed within two study days. No scale-up generator, cloud deployment, streaming implementation, or orchestration platform.
+**Scope:** Exactly 150 sales rows across three simulated delivery dates, 10 products, and 5 stores. These deliveries are processed within two study days. No scale-up generator, cloud deployment, streaming implementation, or orchestration platform.
 
 **Architecture boundary:** This is a warehouse-style analytical model on local files. Raw/validated/curated layers support data lake organization. Plain Parquet does not provide transactional `MERGE`; warehouse and lakehouse equivalents are design topics. A local snapshot workflow is not a distributed transaction system.
 
@@ -52,18 +53,18 @@ Log counts and outcomes throughout. Readers use the committed snapshot reference
 
 ### Datasets and grain
 
-| Dataset | Target size / grain | Key and purpose |
+| Dataset | Size / grain | Key and purpose |
 | --- | --- | --- |
 | `products.csv` | 10 rows; one product | `product_id`; name and category |
 | `stores.csv` | 5 rows; one store | `store_id`; name and province |
-| `sales_2026-04-01.csv` | About 60 source rows; one delivered order-line version | Initial load, invalid rows, duplicates |
-| `sales_2026-04-02.csv` | About 50 source rows; one delivered order-line version | New lines, corrections, repeated and stale versions |
-| `sales_2026-04-03.csv` | About 40 source rows; one delivered order-line version | Late arrivals, conflicts, recovery and replay |
+| `sales_2026-04-01.csv` | 60 source rows; one delivered order-line version | Initial load, invalid rows, duplicates |
+| `sales_2026-04-02.csv` | 50 source rows; one delivered order-line version | New lines, corrections, repeated and stale versions |
+| `sales_2026-04-03.csv` | 40 source rows; one delivered order-line version | Late arrivals, conflicts, recovery and replay |
 | `dim_product`, `dim_store` | One row per product/store | Unique, non-null reference keys |
 | `fact_sales` | One current accepted version per order line | Composite business key `(order_id, order_line_id)` |
 | `quarantine` | One rejected source row occurrence | Source identity plus an array of rejection reasons |
 
-Reserve at least one store with no completed sales and one product-ranking tie for SQL practice. Exact row counts and expected totals must be recorded here when the seed files are generated.
+`S005` has two cancelled lines and no completed sales across all batches. Household products `P009` and `P010` each contribute `10.00` revenue, providing a ranking tie.
 
 ### Sales fields
 
@@ -79,7 +80,7 @@ Reserve at least one store with no completed sales and one product-ranking tie f
 
 Dimensions contain required strings: `product_id`, `product_name`, `category`; and `store_id`, `store_name`, `province`.
 
-Attach `batch_id`, `run_id`, `source_file`, and a stable source-row identifier. A batch identifies a delivery; a run identifies one attempt. Source identity must survive replay and must not depend on Spark partition placement.
+Each sales CSV supplies `source_row_id` (`R001`, `R002`, …), unique within that file. Attach `batch_id`, `run_id`, and `source_file`. Stable occurrence identity is `(batch_id, source_file, source_row_id)`; `run_id` identifies an attempt. Duplicate business payloads intentionally have different source-row IDs. Do not use partition-dependent IDs for replay identity.
 
 **Parsing:** Preserve source values so missing and malformed inputs can be diagnosed separately. Define explicit schemas and parsing rules; do not rely on inferred CSV types or assume schema declaration enforces business constraints. Structurally unreadable deliveries fail before publication.
 
@@ -89,44 +90,113 @@ Attach `batch_id`, `run_id`, `source_file`, and a stable source-row identifier. 
 - An order belongs to one store and business date. Fixtures preserve that relationship; report distinct orders using `order_id`, not order-line count.
 - Completed lines: `gross_sales = quantity × unit_price`; `net_sales = gross_sales − discount_amount`; `gross_margin = net_sales − quantity × unit_cost`. Cancelled lines remain in the fact with zero realized sales, margin, and completed units. Negative margin is allowed. Choose explicit decimal result precision; avoid floating-point money.
 - Separate exact duplicates from different versions. Collapse identical business payloads even when delivery metadata differs. Retain accounting for every input occurrence.
-- For a business key, a newer `updated_at` supersedes an older accepted version. Equal timestamp plus equal payload is a replay. Equal timestamp plus different payload is a conflict: quarantine that conflicting incoming key group and preserve any committed version. Do not invent precedence from file order or random IDs.
+- For a business key, a newer `updated_at` supersedes an older accepted version. Equal timestamp plus equal payload is a replay. Equal timestamp plus different payload is a conflict: if any validated incoming versions disagree at the same timestamp, or disagree with the committed version at its timestamp, quarantine all valid incoming occurrences for that business key and preserve any committed version. This conservative rule also applies when that key has another, newer incoming version. Do not invent version precedence from file order or random IDs. Among identical payload copies, choosing the smallest stable source occurrence ID for lineage is permitted; it does not decide business precedence.
 - Validate before applying updates. Invalid newer records cannot erase valid committed data. Cancelled status is an update, not a physical deletion; source deletes are outside this implementation.
 - Discover work by delivery/batch identity, not `sale_date > last_processed_date`. Late facts and corrections can change historical totals. Explain when a source update-time high-water mark would need overlap and deduplication.
 
 [Back to top](#top)
 
+## Seed expectations
+
+These are acceptance targets, not outputs from an implemented pipeline. Money is CAD. Process the batches in delivery order for the tables below; reruns must preserve the resulting business state. `tests/fixtures/expected_batches.json` contains the same expected values for your assertions.
+
+| Delivery | Source | Validation rejects | Conflict rejects | Ignored | Inserts | Updates | Final fact rows |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 2026-04-01 | 60 | 8 | 2 | 6 | 44 | 0 | 44 |
+| 2026-04-02 | 50 | 4 | 3 | 5 | 32 | 6 | 76 |
+| 2026-04-03 | 40 | 4 | 3 | 5 | 24 | 4 | 100 |
+
+| After delivery | Completed lines | Completed orders | Completed units | Gross sales | Net sales | Gross margin |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 2026-04-01 | 42 | 41 | 43 | 430.00 | 429.00 | 171.00 |
+| 2026-04-02 | 73 | 72 | 76 | 765.00 | 762.00 | 300.00 |
+| 2026-04-03 | 97 | 96 | 102 | 1027.00 | 1024.00 | 406.00 |
+
+**Named cases:** All source-row IDs below refer to the indicated delivery file.
+
+| Delivery / source rows | Purpose and expected behavior |
+| --- | --- |
+| Apr 1 `R001`–`R044` | 44 accepted business keys. `O1001` has two lines; its line 1 yields gross/net/margin `20.00 / 19.00 / 7.00`. |
+| Apr 1 `R045`–`R050` | Four duplicate payload copies and two superseded versions; six ignored occurrences. |
+| Apr 1 `R051`–`R052` | Two conflicting versions of new key `O1090`; quarantine both, insert neither. |
+| Apr 1 `R053`–`R060` | Missing order ID, blank product ID, malformed quantity, malformed date, unknown product, unknown store, negative price, multiple violations. |
+| Apr 2 `R001`–`R032` | 32 new sales lines. |
+| Apr 2 `R033`–`R038` | Six corrections: price, quantity, cancellation, discount, cost, price. `O1006` gains negative margin; it remains valid. |
+| Apr 2 `R039`–`R043` | Duplicate/replayed/stale occurrences; ignore all five. |
+| Apr 2 `R044`–`R046` | `O1011` has two conflicting incoming versions; `O1012` disagrees with committed data at the same timestamp. Preserve prior versions. |
+| Apr 2 `R047`–`R050` | Missing timestamp, malformed price, excessive discount, invalid newer quantity for `O1013`. That invalid update must not erase its committed row. |
+| Apr 3 `R001`–`R024` | 22 new current-date lines plus late April 1 orders `O3901`/`O3902` at `R023`/`R024`. |
+| Apr 3 `R025`–`R028` | Four corrections, including cancellation and reinstating a previously cancelled line. |
+| Apr 3 `R029`–`R033` | Five ignored repeated/stale occurrences. |
+| Apr 3 `R034`–`R036` | Two incoming conflicts for `O2005`, one conflict against current `O2006`. |
+| Apr 3 `R037`–`R040` | Missing store, malformed line ID, zero quantity, malformed timestamp. |
+
+**Parsing and rejection conventions:** Retain the original eleven values as `raw_<field>` alongside typed fields; add `parse_errors: array<string>`. Use `MISSING_<FIELD>` for null/blank source values and `MALFORMED_<FIELD>` for nonblank values that cannot become the required type. A malformed value is not also missing. Integers are whole-number text; monetary text has at most two decimal places; dates use `yyyy-MM-dd`, timestamps use `yyyy-MM-dd'T'HH:mm:ss` in UTC. The fixtures contain no currency symbols or fractional cents.
+
+Use `NONPOSITIVE_ORDER_LINE_ID`, `NONPOSITIVE_QUANTITY`, `NEGATIVE_UNIT_PRICE`, `NEGATIVE_UNIT_COST`, `NEGATIVE_DISCOUNT_AMOUNT`, `INVALID_ORDER_STATUS`, `UNKNOWN_PRODUCT_ID`, `UNKNOWN_STORE_ID`, and `EXCESSIVE_DISCOUNT` for the corresponding rules. Check unknown references only for present nonblank IDs, and excessive discount only when quantity/price/discount already satisfy their individual ranges. Quarantine arrays contain all applicable reasons, without null elements or duplicate reason strings. Version conflict reason: `CONFLICTING_VERSION`.
+
+Apr 1 `R060` must have exactly: `MISSING_ORDER_ID`, `NONPOSITIVE_QUANTITY`, `UNKNOWN_PRODUCT_ID`, `NEGATIVE_UNIT_COST`, `INVALID_ORDER_STATUS` (reason order does not matter). Accepted candidates retain metadata/raw evidence and an empty reason array. Derived fact measures use `DecimalType(18, 2)` and `completed_units` uses `IntegerType`.
+
+**Version-stage interfaces:** `resolve_versions` receives validated typed incoming rows and committed source fields (an empty DataFrame with a compatible schema for Day 1). Candidates contain one winning occurrence per changed key plus `change_type` (`INSERT`/`UPDATE`). Ignored occurrences carry `ignore_reason`; conflicts carry `rejection_reasons`. `apply_upserts` produces current source state; `build_fact_sales` enriches that state and computes measures. Payload comparison includes the eleven source business fields; it excludes metadata, raw evidence, reason arrays, and dimension/derived attributes.
+
+**Python fixture targets:** In `PRACTICE_RECORDS`, key counts are `{('O1001', 1): 3, ('O1002', 1): 2, ('O1003', 1): 1}`. Duplicate keys are `O1001/1` and `O1002/1`; latest selection returns winners `O1001/1` at 10:00 priced `12.00`, and `O1003/1` priced `7.00`, plus both `O1002/1` conflict occurrences. Sorting is ascending by `(updated_at, order_id, order_line_id)`; equal sort keys retain input order. Bounds return first encountered among fully tied keys, not a resolution of conflicting payloads. Only `sort_in_place` mutates its input; it returns `None`.
+
+[Back to top](#top)
+
 ## Project structure and setup
 
-| Planned path | Responsibility |
+| Path | Responsibility |
 | --- | --- |
-| `README.md`, `.gitignore` | Central specification and generated-file exclusions |
-| `requirements.txt` | Pin the verified local PySpark and pytest versions |
-| `data/seed/` | Committed synthetic CSV dimensions and three sales deliveries |
-| `src/retail_etl/__init__.py` | Package marker |
-| `src/retail_etl/python_practice.py` | Local data structures, sorting, and lambda exercises |
-| `src/retail_etl/schemas.py`, `ingestion.py` | Schemas, parsing, source metadata |
-| `src/retail_etl/validation.py`, `transformations.py` | Quality checks, enrichment, measures |
-| `src/retail_etl/incremental.py` | Version resolution and logical upserts |
-| `src/retail_etl/storage.py`, `pipeline.py` | Snapshot publication, orchestration, logs and metrics |
-| `sql/01_filter.sql` … `08_quality.sql` | Eight Spark SQL exercises |
-| `tests/conftest.py`, `test_validation.py`, `test_transformations.py`, `test_incremental.py`, `test_pipeline.py` | Shared Spark fixture; unit and integration checks |
-| `runtime/` | Generated validated data, quarantine, snapshots, staging, commit metadata, logs and metrics |
-| `_scratch/` | Disposable local experiments |
+| `README.md`, `.gitignore` | Central specification; exclude runtime output and local secrets |
+| `requirements.txt`, `pyproject.toml` | Pinned dependencies, editable package install, pytest configuration |
+| `data/seed/` | Five fixed CSVs: products, stores, three sales deliveries |
+| `src/retail_etl/config.py`, `session.py`, `seed_io.py` | Supplied paths/constants, local Spark setup, tiny CSV fixture loader |
+| `src/retail_etl/python_practice.py` | Six Python exercises and local practice records |
+| `src/retail_etl/schemas.py`, `ingestion.py` | Supplied raw/dimension schemas; learner typed schema, reads and parsing |
+| `src/retail_etl/validation.py`, `transformations.py` | Quality rules, quarantine, enrichment, measures, aggregation TODOs |
+| `src/retail_etl/incremental.py`, `reconciliation.py` | Version resolution, upserts, reconciliation TODOs |
+| `src/retail_etl/storage.py`, `pipeline.py` | Publication/orchestration TODOs; supplied smoke-test CLI |
+| `sql/01_filter.sql` … `08_quality.sql` | Eight query prompts without query solutions |
+| `tests/conftest.py`, `test_setup.py` | Supplied Spark/seed fixtures and six setup checks |
+| `tests/test_*.py`, `tests/fixtures/expected_batches.json` | 22 skipped exercise tests and fixed expected results |
+| `runtime/`, `_scratch/` | Generated output and disposable experiments; created only when needed |
 
-Use Windows 11, VS Code, a Python virtual environment, a Java runtime compatible with the chosen PySpark release, and pytest. Reuse a working local Spark setup; record its exact versions in `requirements.txt` when scaffolding. Spark SQL runs through `spark.sql()` against temporary views, with no second database.
+**Environment:** Python 3.10+ for this scaffold; pinned PySpark `4.0.1` and pytest `8.4.2`. Use Java 17 or later and configure `JAVA_HOME` for local Spark. These are fixed project pins, not a claim about the newest releases. See the [versioned PySpark installation requirements](https://spark.apache.org/docs/4.0.1/api/python/getting_started/install.html).
 
-**Planned interface, after starter files exist:**
+In **PowerShell**, open the extracted repository root and run:
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-$env:PYTHONPATH = "$PWD\src"
-python -m retail_etl.pipeline --batch-id 2026-04-01
-python -m pytest -q
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m retail_etl.pipeline --smoke-test
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Use single-quoted Python strings, short comments explaining what/why, and transformation functions that return DataFrames. Keep reading, writing, and orchestration separate from transformation logic. Preserve seed inputs; write generated outputs under `runtime/`.
+Calling the environment's interpreter directly avoids activation-policy problems. In VS Code, select `.venv\Scripts\python.exe` as the interpreter. The editable install makes `retail_etl` importable without changing `PYTHONPATH`.
+
+**Verification:** Setup was checked on Linux with Python 3.12, Java 17, and the pinned dependencies. Windows commands are supplied; run the smoke test on your own machine before starting.
+
+**Expected now:** Smoke test prints `SETUP_OK` and `parquet_rows: 3`; pytest reports **6 passed, 22 skipped**. Skipped tests are unfinished exercises, not evidence of a working pipeline. The smoke test starts Spark, writes/reads temporary Parquet, and stops the session. If it fails, resolve the Python/Java/path error before implementation; the package does not bundle Java or Windows Hadoop native binaries.
+
+After implementing the pipeline:
+
+```powershell
+.\.venv\Scripts\python.exe -m retail_etl.pipeline --batch-id 2026-04-01
+.\.venv\Scripts\python.exe -m retail_etl.pipeline --batch-id 2026-04-02
+.\.venv\Scripts\python.exe -m retail_etl.pipeline --batch-id 2026-04-03
+```
+
+Before implementation, batch commands deliberately return `EXERCISE_NOT_IMPLEMENTED` and exit code `2`. `--fail-at after_stage` and `--fail-at after_publish` define the Day 2 injection points; the failure behavior is yours to implement.
+
+**Start here:** Open `python_practice.py`, implement only `count_keys`, remove the skip marker on `test_count_keys`, and write its assertions. Run:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_python_practice.py -k count_keys -q
+```
+
+Then complete the Python exercises, `sales_schema`, ingestion/parsing, validation, initial version resolution with empty current state, and fact construction. Add tests as each function becomes usable. Day 2 extends version handling to existing state and adds publication/recovery.
+
+Use single-quoted Python strings and short what/why comments. Keep transformations separate from I/O. Preserve seeds; write generated data under `runtime/`. The four local shuffle partitions are a small-data starting point, not a production tuning recommendation.
 
 [Back to top](#top)
 
@@ -156,7 +226,7 @@ Use single-quoted Python strings, short comments explaining what/why, and transf
 
 ## Implementation exercises
 
-The signatures below define interfaces, not solutions. Starter files and concrete seed fixtures are a subsequent scaffold step. For each exercise, write the logic and meaningful test assertions yourself.
+The signatures below define interfaces, not solutions. Starter files and concrete seed fixtures are included. For each exercise, write the logic and meaningful test assertions yourself.
 
 ### 1. Python reasoning and lambdas
 
@@ -174,7 +244,7 @@ The signatures below define interfaces, not solutions. Starter files and concret
 
 **Requirement / inputs → outputs:** Raw sales plus dimensions → explicitly typed rows, validated candidates, and quarantine with all applicable reasons.
 
-**Interfaces:** `read_batch(spark, path, batch_id) -> DataFrame`; `validate_dimensions(products_df, stores_df) -> None`; `validate_sales(sales_df, products_df, stores_df) -> tuple[DataFrame, DataFrame]`.
+**Interfaces:** `read_batch(spark, path, batch_id, run_id) -> DataFrame`; `parse_sales(raw_df) -> DataFrame`; `validate_dimensions(products_df, stores_df) -> None`; `validate_sales(sales_df, products_df, stores_df) -> tuple[DataFrame, DataFrame]`.
 
 **Fixture:** Null key, whitespace ID, malformed quantity/date, unknown product/store, negative amount, excessive discount, and a row violating several rules. Include duplicate dimension keys.
 
@@ -210,7 +280,7 @@ The signatures below define interfaces, not solutions. Starter files and concret
 
 **Requirement / inputs → outputs:** A reconciled candidate snapshot → a committed version, recoverable batch history, and structured run metrics.
 
-**Interfaces:** `publish_snapshot(fact_df, batch_id, run_id, output_root) -> dict`; `run_batch(batch_id, fail_at=None) -> dict`.
+**Interfaces:** `publish_snapshot(fact_df, batch_id, run_id, output_root, batch_metadata, fail_at=None) -> dict`; `run_batch(batch_id, fail_at=None) -> dict`.
 
 **Fixture:** Inject failure after staging but before publication, then after publication but before success logging. Retry the same delivery; backfill an older delivery.
 
@@ -244,7 +314,19 @@ Ignored occurrences include duplicate copies, superseded versions, and stale/rep
 
 ## SQL exercises
 
-Register `fact_sales`, `dim_product`, `dim_store`, `incoming_sales`, and `current_sales` as temporary views. Version-analysis views contain typed source fields. Use Spark SQL; warehouse `MERGE` remains conceptual. Each numbered row is one query-file exercise and may contain short subqueries/tasks.
+Register `fact_sales`, `dim_product`, `dim_store`, `incoming_sales`, and `current_sales` as temporary views. Version-analysis views contain typed source fields. Use Spark SQL; warehouse `MERGE` remains conceptual. Each numbered row is one query-file exercise and may contain short subqueries/tasks. After creating your DataFrames, register views and run one completed statement at a time in the same Spark session:
+
+```python
+from pathlib import Path
+
+fact_df.createOrReplaceTempView('fact_sales')
+products_df.createOrReplaceTempView('dim_product')
+stores_df.createOrReplaceTempView('dim_store')
+# Register incoming/current typed views similarly when you reach Exercise 7.
+spark.sql(Path('sql/02_stores.sql').read_text(encoding='utf-8')).show()
+```
+
+The supplied `.sql` files contain comments only; write a query before executing them. Put the day's checked fact in `fact_df`; final snapshot expectations apply only after processing all three deliveries.
 
 | # | Requirement and input | Expected output / grain | Acceptance and interview check |
 | --- | --- | --- | --- |
@@ -289,7 +371,7 @@ Keep the core fact snapshot unpartitioned for this tiny dataset. Use a separate 
 | Scaling | Large snapshots, small files, skew, executor memory, broadcast limits, and shuffle costs? What would you change before moving to a warehouse or transactional table format? |
 | Communication | Give a two-minute pipeline walkthrough. Explain a bug, evidence used, fix, and tradeoff. Prepare truthful examples of ambiguity, learning, debugging, and collaboration. |
 
-Warehouse modeling and analytical queries are implemented locally. SCDs, warehouse `MERGE`, and transactional lakehouse capabilities—atomic commits, consistent reads, concurrency control, schema evolution, and history—remain conceptual. Keep CDC, orchestration, security, and deployment review at interview depth.
+Warehouse modeling and analytical queries are local implementation exercises. SCDs, warehouse `MERGE`, and transactional lakehouse capabilities—atomic commits, consistent reads, concurrency control, schema evolution, and history—remain conceptual. Keep CDC, orchestration, security, and deployment review at interview depth.
 
 **Assistance ladder:** Conceptual hint → relevant API → pseudocode → partial code → complete solution only on explicit request.
 
@@ -309,7 +391,7 @@ Score correctness, clarity, evidence, and tradeoff awareness. Use the final 45-m
 
 ## Definition of done
 
-- [ ] Seed contracts and exact expected counts/totals are recorded here.
+- [x] Seed contracts and exact expected counts/totals are recorded here.
 - [ ] Three deliveries produce a unique, typed, reconciled sales fact and traceable quarantine.
 - [ ] Corrections, stale versions, conflicts, cancellations, and late arrivals follow the stated rules.
 - [ ] Replay preserves business state; controlled failures recover without publishing partial results.
